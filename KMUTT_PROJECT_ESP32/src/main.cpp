@@ -12,26 +12,35 @@
 // #define GPS_Rx      17
 // #define GPS_Tx      16
 #define GPS_Baud    9600
+#define Sensor_Baud 9600
 
 String GOOGLE_SCRIPT_ID = "AKfycbyBmp4C_tCdRTgzQbnBfWeMDvXm6HUKO19lzwAEyskuF5Md5dFNsaFJrVCqz2bbmk7JrA";
 
 
+// String *global_RxData;
+
 struct node1data {
-    int x;
-    int y;
-    int z;
+    float x;
+    float y;
+    float z;
+    float temp;
+    float humi;
 };
 
 struct node2data {
-    int x;
-    int y;
-    int z;
+    float x;
+    float y;
+    float z;
+    float temp;
+    float humi;
 };
 
 struct node3data {
-    int x;
-    int y;
-    int z;
+    float x;
+    float y;
+    float z;
+    float temp;
+    float humi;
 };
 
 
@@ -42,6 +51,7 @@ struct gpsdata {
     int hr_time, min_time, sec_time, day, month, year;
 };
 
+// GNSS RTC
 RTC_DATA_ATTR float RTC_lat = 0;
 RTC_DATA_ATTR float RTC_lon = 0;
 RTC_DATA_ATTR int RTC_hr_time = 0;
@@ -54,11 +64,13 @@ RTC_DATA_ATTR int RTC_year = 0;
 
 struct systemStatus {
     unsigned char gpsReady;
+    unsigned char sensorReady;
     unsigned char sheetFailCounter;
     unsigned char WiFiTimeoutCounter;
     unsigned long lastSendTime;
     unsigned char GNSSCounter;
     unsigned char failCounter;
+    unsigned char SensorfailCounter;
 };
 
 
@@ -75,30 +87,49 @@ systemStatus sys;
 systemBuffer sysBuff;
 
 TinyGPSPlus GPS;
+HardwareSerial sensorSerial(1);
 HardwareSerial gpsSerial(2);
 
 
+int countEvent(String str, char target) {
+    int count = 0;
+    for(int i = 0; i < str.length(); i++) {
+        if(str.charAt(i) == target) {
+            count++;
+        }
+    }
+    return count;
+}
+
 
 void setup(void) {
-    // init startup valule
+    // init valule at startup
     sys.sheetFailCounter = 0;
     sys.WiFiTimeoutCounter = 0;
     sys.lastSendTime = 0;
     sys.gpsReady = 0;
+    sys.sensorReady = 0;
     sys.GNSSCounter = 0;
     sys.failCounter = 0;
+    sys.SensorfailCounter = 0;
 
-    N1.x = 123.008;
-    N1.y = -1556.335;
-    N1.z = -48.549;
+    N1.x = 0;
+    N1.y = 0;
+    N1.z = 0;
+    N1.temp = 0;
+    N1.humi = 0;
 
-    N2.x = 887.085;
-    N2.y = -8512.451;
-    N2.z = 892.668;
+    N2.x = 0;
+    N2.y = 0;
+    N2.z = 0;
+    N2.temp = 0;
+    N2.humi = 0;
 
-    N3.x = -561.799;
-    N3.y = -513.195;
-    N3.z = 3816.792;
+    N3.x = 0;
+    N3.y = 0;
+    N3.z = 0;
+    N3.temp = 0;
+    N3.humi = 0;
 
     GPSDATA.lat = 0;
     GPSDATA.lon = 0;
@@ -114,8 +145,9 @@ void setup(void) {
 
 
 
-    Serial.begin(115200);       // UART0 - Debug
-    gpsSerial.begin(GPS_Baud);  // UART2 - GNSS module
+    Serial.begin(115200);                                           // UART0 - Debug
+    sensorSerial.begin(Sensor_Baud, SERIAL_8N1, 21, 19);            // UART1 - Sensor Master node | Rx = GPIO21 Tx = GPIO19
+    gpsSerial.begin(GPS_Baud);                                      // UART2 - GNSS module
 
     // Wifi init and debug
     Serial.printf("Connect wifi : %s", SSID);
@@ -167,8 +199,96 @@ void loop(void) {
             }
         }
 
-        Serial.printf("GPS STATUS : %i\n", sys.gpsReady);
-        
+
+        // Call data from master sensor
+        SENSORTASK :
+        if(sys.sensorReady == 0) {
+
+            sensorSerial.write(0x42);       // Send B
+
+            if(sensorSerial.available()) {
+                String RxBuffer = sensorSerial.readString();
+                RxBuffer.trim();
+
+                int numValue = countEvent(RxBuffer, ',') + 1;
+                // numValue = countEvent(RxBuffer, ',') + 1;
+                String RxData[numValue];
+                unsigned char startIndex = 0;
+
+                for(int i = 0; i < numValue; i++) {
+                    int commaIndex = RxBuffer.indexOf(',', startIndex);
+
+                    if(commaIndex != -1) {
+                        RxData[i] = RxBuffer.substring(startIndex, commaIndex);
+                        startIndex = commaIndex + 1;
+                    }else {
+                        RxData[i] = RxBuffer.substring(startIndex);
+                    }
+                }
+
+                // Data process
+                char headerByte[1], stopByte[1];
+                RxData[1].toCharArray(headerByte, RxData[1].length()+1);    // 0x56 - V
+                RxData[36].toCharArray(stopByte, RxData[36].length()+1);    // 0x7A - z
+
+                if(headerByte[0] == 0x56 && stopByte[0] == 0x7A) {
+                    Serial.print(F("SENSOR VALID\n"));
+                    
+
+                    // Dump buffer for debug
+                    for(int i = 0; i < numValue; i++) {
+                        Serial.println(RxData[i]);
+                    }
+                    //Process data
+                    N1.x = RxData[3].toFloat();
+                    N1.y = RxData[4].toFloat();
+                    N1.z = RxData[5].toFloat();
+
+                    N2.x = RxData[7].toFloat();
+                    N2.y = RxData[8].toFloat();
+                    N2.z = RxData[9].toFloat();
+
+                    N3.x = RxData[11].toFloat();
+                    N3.y = RxData[12].toFloat();
+                    N3.z = RxData[13].toFloat();
+
+                    N1.temp = RxData[16].toFloat();
+                    N2.temp = RxData[18].toFloat();
+                    N3.temp = RxData[20].toFloat();
+
+                    N1.humi = RxData[23].toFloat();
+                    N2.humi = RxData[25].toFloat();
+                    N3.humi = RxData[27].toFloat();
+
+
+                    sys.SensorfailCounter = 0;
+                    sys.sensorReady = 1;
+                }else {
+                    sys.SensorfailCounter++;
+                    Serial.print(F("SENSOR : RETRY\n"));
+
+                    while(sys.SensorfailCounter >= 10) {
+                        Serial.print(F("SENSOR FAIL\n"));
+                        sys.SensorfailCounter = 0;
+                        sys.sensorReady = 2;
+                    }
+
+                    delay(5);
+                    goto SENSORTASK;
+                }
+            }else {
+                sys.SensorfailCounter++;
+                Serial.print(F("SENSOR : RETRY\n"));
+
+                while(sys.SensorfailCounter >= 10) {
+                    Serial.print(F("SENSOR FAIL\n"));
+                    sys.SensorfailCounter = 0;
+                    sys.sensorReady = 2;
+                }
+                delay(5);
+                goto SENSORTASK;
+            }
+        }
         
 
 
@@ -188,10 +308,11 @@ void loop(void) {
         }
 
         //  Put data to google sheet
-        if(WiFi.status() == WL_CONNECTED && sys.gpsReady >= 1) {
+        if(WiFi.status() == WL_CONNECTED && sys.gpsReady >= 1 && sys.sensorReady >= 1) {
 
             Serial.printf("GOOGLE SHEET TASK\n");
 
+            // If GNSS data pass
             while(sys.gpsReady == 1) {
                 GPSDATA.lat = GPS.location.lat();
                 GPSDATA.lon = GPS.location.lng();
@@ -214,7 +335,7 @@ void loop(void) {
 
                 break;
             }
-
+            // If GNSS data fail
             while(sys.gpsReady == 2) {
                 //get last data from RTC RAM
                 GPSDATA.lat = RTC_lat;
@@ -229,13 +350,64 @@ void loop(void) {
                 break;
             }
 
+            
+            // while(sys.sensorReady == 1) {
+            //     N1.x = global_RxData[3].toFloat();
+            //     N1.y = global_RxData[4].toFloat();
+            //     N1.z = global_RxData[5].toFloat();
+
+            //     N2.x = global_RxData[7].toFloat();
+            //     N2.y = global_RxData[8].toFloat();
+            //     N2.z = global_RxData[9].toFloat();
+
+            //     N3.x = global_RxData[11].toFloat();
+            //     N3.y = global_RxData[12].toFloat();
+            //     N3.z = global_RxData[13].toFloat();
+
+            //     N1.temp = global_RxData[16].toFloat();
+            //     N2.temp = global_RxData[18].toFloat();
+            //     N3.temp = global_RxData[20].toFloat();
+
+            //     N1.humi = global_RxData[23].toFloat();
+            //     N2.humi = global_RxData[25].toFloat();
+            //     N3.humi = global_RxData[27].toFloat();
+
+            //     break;
+            // }
+            // If sensor hook fail
+            while(sys.sensorReady == 2) {
+                N1.x = 0;
+                N1.y = 0;
+                N1.z = 0;
+
+                N2.x = 0;
+                N2.y = 0;
+                N2.z = 0;
+
+                N3.x = 0;
+                N3.y = 0;
+                N3.z = 0;
+
+                N1.temp = 0;
+                N2.temp = 0;
+                N3.temp = 0;
+
+                N1.humi = 0;
+                N2.humi = 0;
+                N3.humi = 0;
+
+                break;
+            }
+
+
+
 
             GPSDATA.time = String(GPSDATA.hr_time) + ":" + String(GPSDATA.min_time) + ":" + String(GPSDATA.sec_time);
             GPSDATA.date = String(GPSDATA.day) + "/" + String(GPSDATA.month) + "/" + String(GPSDATA.year);
             
             Serial.printf("LAT = %6f\r\nLON = %6f\r\nTime = %s\r\nDATE = %s\r\n", GPSDATA.lat, GPSDATA.lon, GPSDATA.time, GPSDATA.date);
 
-            sprintf(sysBuff.httpStringBuff,"date=%s&time=%s&lat=%6f&lon=%6f&n1x=%i&n1y=%i&n1z=%i&n2x=%i&n2y=%i&n2z=%i&n3x=%i&n3y=%i&n3z=%i",GPSDATA.date, GPSDATA.time, GPSDATA.lat, GPSDATA.lon, N1.x, N1.y, N1.z, N2.x, N2.y, N2.z, N3.x, N3.y, N3.z);
+            sprintf(sysBuff.httpStringBuff,"date=%s&time=%s&lat=%6f&lon=%6f&n1x=%f&n1y=%f&n1z=%f&n2x=%f&n2y=%f&n2z=%f&n3x=%f&n3y=%f&n3z=%f",GPSDATA.date, GPSDATA.time, GPSDATA.lat, GPSDATA.lon, N1.x, N1.y, N1.z, N2.x, N2.y, N2.z, N3.x, N3.y, N3.z);
             Serial.println(sysBuff.httpStringBuff);
             goto SHEETEVENT;
 
@@ -268,6 +440,7 @@ void loop(void) {
             }
 
             sys.gpsReady = 0;
+            sys.sensorReady = 0;
             http.end();
         }
 
@@ -275,3 +448,4 @@ void loop(void) {
     }
 
 } // END VOID LOOP
+
