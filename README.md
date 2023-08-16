@@ -12,15 +12,22 @@
 
 # Feature
 ### Released ✅
+(Rev. 1.0A)
 - read data from GNSS Module
 - read data from sensor via UART
 - put all data to Google sheet
 - Deep sleep  
 
 ### in test *️⃣  
-- _None_  
+(Rev. 1.0B)
+- Used Google sheet script for highlight data
+- Wait interrupt signal from Master sensor node used interrupt pin
+- _[Remove]_ Deep sleep
+- _[Change]_ Sensor communications main code
+- _[Change]_ Sensor data splitter and storage functions code 
 
 ### in progress ❓  
+- _[Additional]_ Send alert when master sensor node not send signal in 8 minute
 - LTE/GNSS module
     - SIMCOM SIM7600E-H1C
     - SIMCOM SIM7020E
