@@ -5,8 +5,10 @@
 | Processor | ESP32 WROOM32 |
 | GNSS Module | Ublox Neo 7M |
 
-
-### *! Require platformIO !*
+| Requirement | PlatformIO |
+|---|---|
+| Code Rev. | 1.0A |
+| Schematic Rev. | 1.0A |
 
 # Feature
 ### Released ✅
@@ -67,3 +69,7 @@ used for communicated with GNSS module
 | data bit | 8 |
 | Parity | None |
 | Stop bit | 1 |
+
+
+# Flowchart
+![flowchart](/DOC/flowchart.svg)
